@@ -109,3 +109,54 @@ if [ $RET -ne 0 ]; then
 fi
 
 $logger "finished updating $ipsetname. Old entry count: $ipsetcount New count: $cnt of $scrublistlen"
+
+# -----------------------------------------------------------------------
+
+tmpname="tmp-$$-${RANDOM}-$(date +%s)"
+country_ipset="whitelist_countries"
+continent_ipset="all_continents"
+
+# Create IPSets
+ipset -N "${tmpname}" nethash maxelem 1000000
+ipset -N "${country_ipset}" nethash -exist maxelem 1000000
+ipset -N "${continent_ipset}" nethash -exist maxelem 1000000
+
+# Whitelist countries
+countries=("country_in" "country_ca" "country_us")
+for country in "${countries[@]}"; do
+  # Download the netset file
+  curl -q "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/geolite2_country/${country}.netset" | iprange --ipset-reduce 1 --ipset-reduce-entries 300000 --print-prefix "-A ${tmpname} " >> "/tmp/${country_ipset}"
+done
+
+# Create Country Whitelist
+ipset -F "${tmpname}"
+ipset -F "${country_ipset}"
+ipset -R -! <"/tmp/${country_ipset}"
+ipset -W "${tmpname}" "${country_ipset}" 
+
+continents=("af" "an" "as" "eu" "na" "oc" "sa")
+for continent in "${continents[@]}"; do
+  # Download the netset file
+  curl -q "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/geolite2_country/continent_${continent}.netset" | iprange --ipset-reduce 20 --ipset-reduce-entries 65535 --print-prefix "-A ${tmpname} " >> "/tmp/${continent_ipset}"
+done
+
+# Create Continent Whitelist
+ipset -F "${tmpname}"
+ipset -F "${continent_ipset}"
+ipset -R -! <"/tmp/${continent_ipset}"
+ipset -W "${tmpname}" "${continent_ipset}" 
+
+# Remove Whitelisted Countries
+ipset list whitelist_countries -f whitelist_countries
+ipset list all_continents -f all_continents
+iprange all_continents --except whitelist_countries --print-prefix "-A ${tmpname} " > "/tmp/${tmpname}" 2> /dev/null
+ipset -F "${tmpname}"
+ipset -F "${continent_ipset}"
+ipset -R -! <"/tmp/${tmpname}"
+ipset -W "${tmpname}" "${continent_ipset}" 
+
+rm "/tmp/${tmpname}" "/tmp/${continent_ipset}" "/tmp/${country_ipset}"
+ipset -X "${tmpname}"
+
+# Save the IPSet Blocklist as a file
+iprange "${continent_ipset}" > blocklist.txt

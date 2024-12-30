@@ -114,6 +114,42 @@ start)
     		$IPSET_EXE add "$ipsetname" "$ip"
         done
     ) < /dev/null &> /dev/null & disown -h
+
+    # Geo-IP Blocking
+    ufw-blocklist-ipsum && "Completed Seeding the IP Address"
+
+    if chain_exists geoip-blocklist-input; then
+        iptables -F geoip-blocklist-input
+        iptables -X geoip-blocklist-input
+    fi
+    iptables -N geoip-blocklist-input
+    iptables -A geoip-blocklist-input -m set --match-set whitelist_countries src -j ACCEPT
+    iptables -A geoip-blocklist-input -j LOG --log-level 3 --log-prefix "[GeoIP Input-Blocklist] " -m limit --limit 3/minute --limit-burst 10
+    iptables -A geoip-blocklist-input -j DROP
+
+    iptables -I INPUT -m set --match-set all_continents src -j geoip-blocklist-input
+
+    if chain_exists geoip-blocklist-output; then
+        iptables -F geoip-blocklist-output
+        iptables -X geoip-blocklist-output
+    fi
+    iptables -N geoip-blocklist-output
+    iptables -A geoip-blocklist-output -m set --match-set whitelist_countries dst -j ACCEPT
+    iptables -A geoip-blocklist-output -j LOG --log-level 3 --log-prefix "[GeoIP Output-Blocklist] " -m limit --limit 3/minute --limit-burst 10
+    iptables -A geoip-blocklist-output -j DROP
+
+    iptables -I OUTPUT -m set --match-set all_continents dst -j geoip-blocklist-output
+
+    if chain_exists geoip-blocklist-forward; then
+        iptables -F geoip-blocklist-forward
+        iptables -X geoip-blocklist-forward
+    fi
+    iptables -N geoip-blocklist-forward
+    iptables -A geoip-blocklist-forward -m set --match-set whitelist_countries dst -j ACCEPT
+    iptables -A geoip-blocklist-forward -j LOG --log-level 3 --log-prefix "[GeoIP Forward-Blocklist] " -m limit --limit 3/minute --limit-burst 10
+    iptables -A geoip-blocklist-forward -j DROP
+
+    iptables -I FORWARD -m set --match-set all_continents dst -j geoip-blocklist-forward
     ;;
 stop)
     # delete resources created above
@@ -135,6 +171,20 @@ stop)
     if set_exists $ipsetname; then
 	$IPSET_EXE flush   $ipsetname
 	$IPSET_EXE destroy $ipsetname
+    fi
+
+    # Geo-IP Blocking Cleanup
+    if chain_exists geoip-blocklist-input; then
+        iptables -F geoip-blocklist-input
+        iptables -X geoip-blocklist-input
+    fi
+    if chain_exists geoip-blocklist-output; then
+        iptables -F geoip-blocklist-output
+        iptables -X geoip-blocklist-output
+    fi
+    if chain_exists geoip-blocklist-forward; then
+        iptables -F geoip-blocklist-forward
+        iptables -X geoip-blocklist-forward
     fi
     ;;
 status)
